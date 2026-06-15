@@ -33,6 +33,7 @@ TEMPLATE_PATH = Path(
 )
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "lark-admin")
 PUBLIC_ONLY = os.environ.get("PUBLIC_ONLY") == "1"
+CORS_ALLOW_ORIGIN = os.environ.get("CORS_ALLOW_ORIGIN", "")
 
 FIELD_TO_HEADER = {
     "firstName": "First Name",
@@ -296,9 +297,10 @@ def parse_uploaded_workbook(file_bytes):
     ws = workbook["Leads"] if "Leads" in workbook.sheetnames else workbook.active
     header_cells = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
     headers = {str(value).strip(): index for index, value in enumerate(header_cells) if value not in (None, "")}
+    recognized = [header for header in FIELD_TO_HEADER.values() if header in headers]
     missing = [header for header in FIELD_TO_HEADER.values() if header not in headers]
-    if missing:
-        raise ValueError(f"Missing required template columns: {', '.join(missing)}")
+    if not recognized:
+        raise ValueError("No matching lead columns found. Keep at least one template header in row 1.")
 
     row2 = [value for value in next(ws.iter_rows(min_row=2, max_row=2, values_only=True), [])]
     start_row = 3 if any("Notice" in str(value) for value in row2 if value is not None) else 2
@@ -308,17 +310,20 @@ def parse_uploaded_workbook(file_bytes):
         fields = {}
         has_value = False
         for field, header in FIELD_TO_HEADER.items():
+            if header not in headers:
+                fields[field] = ""
+                continue
             value = row[headers[header]] if headers[header] < len(row) else None
             if value not in (None, ""):
                 has_value = True
             fields[field] = "" if value is None else str(value).strip()
         if has_value:
             parsed.append({"row": row_number, "fields": fields})
-    return parsed
+    return parsed, missing
 
 
 def import_uploaded_leads(file_bytes, partner):
-    parsed_rows = parse_uploaded_workbook(file_bytes)
+    parsed_rows, missing_columns = parse_uploaded_workbook(file_bytes)
     leads = load_leads()
     imported = []
     failed = []
@@ -360,6 +365,7 @@ def import_uploaded_leads(file_bytes, partner):
         "parsed": len(parsed_rows),
         "imported": len(imported),
         "failed": len(failed),
+        "missingColumns": missing_columns,
         "errors": failed[:50],
     }
 
@@ -373,10 +379,19 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
     def send_json(self, payload, status=HTTPStatus.OK):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
+        self.send_cors_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_cors_headers(self):
+        if not CORS_ALLOW_ORIGIN:
+            return
+        self.send_header("Access-Control-Allow-Origin", CORS_ALLOW_ORIGIN)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Key")
+        self.send_header("Access-Control-Max-Age", "86400")
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -437,10 +452,16 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
 
         body = file_path.read_bytes()
         self.send_response(HTTPStatus.OK)
+        self.send_cors_headers()
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_cors_headers()
+        self.end_headers()
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -448,6 +469,10 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/schema":
             self.send_json(SCHEMA)
+            return
+
+        if parsed.path == "/healthz":
+            self.send_json({"status": "ok"})
             return
 
         if parsed.path == "/api/leads":
@@ -495,6 +520,7 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
                 return
             body = file_path.read_bytes()
             self.send_response(HTTPStatus.OK)
+            self.send_cors_headers()
             self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             self.send_header("Content-Disposition", f'attachment; filename="{file_path.name}"')
             self.send_header("Content-Length", str(len(body)))

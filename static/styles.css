@@ -240,6 +240,15 @@ button {
   color: var(--success);
 }
 
+.upload-warning {
+  background: var(--soft-warning);
+  border: 1px solid #f3ce78;
+  border-radius: 8px;
+  color: var(--warning);
+  margin-top: 10px;
+  padding: 10px 12px;
+}
+
 .upload-result ul {
   margin: 8px 0 0;
   padding-left: 18px;

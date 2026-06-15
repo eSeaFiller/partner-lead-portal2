@@ -1,0 +1,17 @@
+services:
+  partner-lead-portal:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      ADMIN_KEY: change-this-admin-key
+      LEAD_DATA_DIR: /data/leads
+      LEAD_EXPORT_DIR: /data/exports
+    volumes:
+      - partner_lead_data:/data
+    restart: unless-stopped
+
+volumes:
+  partner_lead_data:
