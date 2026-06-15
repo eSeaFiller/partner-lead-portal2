@@ -205,6 +205,17 @@ function uploadSummary(payload) {
       .join("");
     lines.push(`<ul>${items}</ul>`);
   }
+  if (payload.warnings?.length) {
+    const warningItems = payload.warnings
+      .map((item) => {
+        const messages = Object.entries(item.warnings)
+          .map(([field, message]) => `${field}: ${message}`)
+          .join("; ");
+        return `<li>Row ${escapeHtml(item.row)} · ${escapeHtml(item.email || item.companyName || "No identifier")} · ${escapeHtml(messages)}</li>`;
+      })
+      .join("");
+    lines.push(`<div class="upload-warning">Imported with warnings:<ul>${warningItems}</ul></div>`);
+  }
   return lines.join("<br>");
 }
 

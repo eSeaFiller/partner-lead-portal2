@@ -49,6 +49,36 @@ FIELD_TO_HEADER = {
     "trackingCode": "Tracking Code",
 }
 
+FIELD_ALIASES = {
+    "firstName": ["first", "given name", "given", "first_name", "firstname", "名"],
+    "lastName": ["last", "family name", "surname", "last_name", "lastname", "姓"],
+    "country": ["country code", "country/region", "region", "market", "国家", "国家/地区"],
+    "companyName": ["company", "account", "organization", "organisation", "company_name", "公司", "公司名称"],
+    "mobileNumber": ["mobile", "phone", "phone number", "mobile phone", "tel", "telephone", "手机号", "电话"],
+    "workEmail": ["email", "work mail", "business email", "work_email", "mail", "邮箱", "工作邮箱"],
+    "jobTitle": ["title", "role", "position", "job", "job_title", "职位", "职务"],
+    "companySize": ["size", "employee size", "employees", "headcount", "company_size", "公司规模"],
+    "industry": ["sector", "vertical", "行业"],
+    "subIndustry": ["subindustry", "sub industry", "sub-sector", "sub sector", "子行业"],
+    "trackingCode": ["tracking", "campaign", "campaign code", "tracking_code", "活动代码"],
+}
+
+JOB_TITLE_ALIASES = {
+    "chief executive officer": "CEO",
+    "founder": "CEO",
+    "owner": "CEO",
+    "chief technology officer": "CTO",
+    "chief information officer": "CIO",
+    "chief financial officer": "CFO",
+    "chief marketing officer": "CMO",
+    "chief operating officer": "COO",
+    "manager": "Manager",
+    "director": "Director",
+    "engineer": "Engineering",
+    "employee": "Employee",
+    "student": "Student",
+}
+
 REQUIRED_FIELDS = [
     "firstName",
     "lastName",
@@ -63,6 +93,14 @@ REQUIRED_FIELDS = [
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+
+
+def normalize_lookup_key(value):
+    return re.sub(r"[\W_]+", "", str(value or "").strip().lower(), flags=re.UNICODE)
+
+
+def normalize_header(value):
+    return normalize_lookup_key(value)
 
 
 def utc_now():
@@ -191,6 +229,107 @@ def schema_sets():
     return countries, job_titles, company_sizes, industries
 
 
+def enum_lookup_maps():
+    country_map = {}
+    for item in SCHEMA["countries"]:
+        country_map[normalize_lookup_key(item["value"])] = item["value"]
+        country_map[normalize_lookup_key(item["label"])] = item["value"]
+
+    job_map = {}
+    for item in SCHEMA["jobTitles"]:
+        job_map[normalize_lookup_key(item["value"])] = item["value"]
+        job_map[normalize_lookup_key(item["label"])] = item["value"]
+    for alias, value in JOB_TITLE_ALIASES.items():
+        job_map[normalize_lookup_key(alias)] = value
+
+    size_map = {normalize_lookup_key(size): size for size in SCHEMA["companySizes"]}
+    size_map.update(
+        {
+            normalize_lookup_key("1 to 10"): "1-10",
+            normalize_lookup_key("11 to 20"): "11-20",
+            normalize_lookup_key("21 to 50"): "21-50",
+            normalize_lookup_key("51 to 100"): "51-100",
+            normalize_lookup_key("101 to 250"): "101-250",
+            normalize_lookup_key("251 to 500"): "251-500",
+            normalize_lookup_key("501 to 999"): "501-999",
+            normalize_lookup_key("1000 to 4999"): "1000-4999",
+            normalize_lookup_key("5000 to 9999"): "5000-9999",
+            normalize_lookup_key("10000+"): ">10000",
+            normalize_lookup_key("> 10000"): ">10000",
+            normalize_lookup_key("more than 10000"): ">10000",
+        }
+    )
+
+    industry_map = {}
+    subindustry_map = {}
+    subindustry_by_industry = {}
+    for industry in SCHEMA["industries"]:
+        industry_map[normalize_lookup_key(industry["value"])] = industry["value"]
+        industry_map[normalize_lookup_key(industry["label"])] = industry["value"]
+        subindustry_by_industry[industry["value"]] = {}
+        for sub in industry["subIndustries"]:
+            subindustry_map[normalize_lookup_key(sub["value"])] = sub["value"]
+            subindustry_map[normalize_lookup_key(sub["label"])] = sub["value"]
+            subindustry_by_industry[industry["value"]][normalize_lookup_key(sub["value"])] = sub["value"]
+            subindustry_by_industry[industry["value"]][normalize_lookup_key(sub["label"])] = sub["value"]
+
+    return {
+        "country": country_map,
+        "jobTitle": job_map,
+        "companySize": size_map,
+        "industry": industry_map,
+        "subIndustry": subindustry_map,
+        "subIndustryByIndustry": subindustry_by_industry,
+    }
+
+
+def map_enum_value(field, value, maps, warnings):
+    original = str(value or "").strip()
+    if not original:
+        return ""
+    mapped = maps[field].get(normalize_lookup_key(original))
+    if mapped:
+        if mapped != original:
+            warnings[field] = f"Cleaned '{original}' to '{mapped}'"
+        return mapped
+    return original
+
+
+def clean_upload_fields(fields, missing_columns):
+    maps = enum_lookup_maps()
+    cleaned = {key: str(fields.get(key, "")).strip() for key in FIELD_TO_HEADER}
+    warnings = {}
+
+    if cleaned["workEmail"]:
+        lowered = cleaned["workEmail"].replace("mailto:", "").strip().lower()
+        if lowered != cleaned["workEmail"]:
+            warnings["workEmail"] = f"Cleaned email '{cleaned['workEmail']}' to '{lowered}'"
+        cleaned["workEmail"] = lowered
+
+    for field in ["country", "jobTitle", "companySize", "industry"]:
+        cleaned[field] = map_enum_value(field, cleaned[field], maps, warnings)
+
+    if cleaned["subIndustry"]:
+        by_industry = maps["subIndustryByIndustry"].get(cleaned["industry"], {})
+        original = cleaned["subIndustry"]
+        mapped = by_industry.get(normalize_lookup_key(original)) or maps["subIndustry"].get(normalize_lookup_key(original))
+        if mapped:
+            if mapped != original:
+                warnings["subIndustry"] = f"Cleaned '{original}' to '{mapped}'"
+            cleaned["subIndustry"] = mapped
+
+    for header in missing_columns:
+        field = next((key for key, value in FIELD_TO_HEADER.items() if value == header), None)
+        if field:
+            warnings[field] = f"Missing column '{header}'; treated as blank"
+
+    return cleaned, warnings
+
+
+def warnings_from_errors(errors):
+    return {field: message for field, message in errors.items()}
+
+
 def duplicate_report(fields, exclude_id=None):
     email = (fields.get("workEmail") or "").strip().lower()
     company_key = normalize_company(fields.get("companyName"))
@@ -292,28 +431,59 @@ def make_export(status):
     return output_path, len(selected)
 
 
+def upload_header_candidates(field):
+    return [FIELD_TO_HEADER[field], *FIELD_ALIASES.get(field, [])]
+
+
+def build_upload_header_index(header_cells):
+    normalized_headers = {
+        normalize_header(value): index
+        for index, value in enumerate(header_cells)
+        if value not in (None, "")
+    }
+    header_index = {}
+    for field in FIELD_TO_HEADER:
+        for candidate in upload_header_candidates(field):
+            key = normalize_header(candidate)
+            if key in normalized_headers:
+                header_index[field] = normalized_headers[key]
+                break
+    return header_index
+
+
+def looks_like_instruction_row(row):
+    values = [str(value or "").strip().lower() for value in row if value not in (None, "")]
+    if not values:
+        return False
+    joined = " ".join(values)
+    has_email = any(EMAIL_RE.match(value) for value in values)
+    instruction_tokens = ["notice", "required", "sample", "example", "do not delete", "note"]
+    repeated_placeholder = len(set(values)) == 1 and values[0] in {"note", "sample", "example", "required"}
+    return not has_email and (repeated_placeholder or any(token in joined for token in instruction_tokens))
+
+
 def parse_uploaded_workbook(file_bytes):
     workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
     ws = workbook["Leads"] if "Leads" in workbook.sheetnames else workbook.active
     header_cells = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
-    headers = {str(value).strip(): index for index, value in enumerate(header_cells) if value not in (None, "")}
-    recognized = [header for header in FIELD_TO_HEADER.values() if header in headers]
-    missing = [header for header in FIELD_TO_HEADER.values() if header not in headers]
+    headers = build_upload_header_index(header_cells)
+    recognized = [FIELD_TO_HEADER[field] for field in FIELD_TO_HEADER if field in headers]
+    missing = [FIELD_TO_HEADER[field] for field in FIELD_TO_HEADER if field not in headers]
     if not recognized:
         raise ValueError("No matching lead columns found. Keep at least one template header in row 1.")
 
     row2 = [value for value in next(ws.iter_rows(min_row=2, max_row=2, values_only=True), [])]
-    start_row = 3 if any("Notice" in str(value) for value in row2 if value is not None) else 2
+    start_row = 3 if looks_like_instruction_row(row2) else 2
 
     parsed = []
     for row_number, row in enumerate(ws.iter_rows(min_row=start_row, values_only=True), start=start_row):
         fields = {}
         has_value = False
         for field, header in FIELD_TO_HEADER.items():
-            if header not in headers:
+            if field not in headers:
                 fields[field] = ""
                 continue
-            value = row[headers[header]] if headers[header] < len(row) else None
+            value = row[headers[field]] if headers[field] < len(row) else None
             if value not in (None, ""):
                 has_value = True
             fields[field] = "" if value is None else str(value).strip()
@@ -327,25 +497,28 @@ def import_uploaded_leads(file_bytes, partner):
     leads = load_leads()
     imported = []
     failed = []
+    row_warnings = []
     seen_emails = set()
 
     for item in parsed_rows:
-        cleaned, errors, warnings, duplicates = validate_lead(item["fields"])
+        cleaned, cleanup_warnings = clean_upload_fields(item["fields"], missing_columns)
+        cleaned, errors, validation_warnings, duplicates = validate_lead(cleaned, block_duplicate_email=False)
+        warnings = {**cleanup_warnings, **validation_warnings, **warnings_from_errors(errors)}
         email_key = cleaned.get("workEmail", "").lower()
         if email_key and email_key in seen_emails:
-            errors["workEmail"] = "Duplicate email inside uploaded file"
-        if errors:
-            failed.append(
+            warnings["workEmail"] = "Duplicate email inside uploaded file"
+
+        if email_key:
+            seen_emails.add(email_key)
+        if warnings:
+            row_warnings.append(
                 {
                     "row": item["row"],
                     "email": cleaned.get("workEmail", ""),
                     "companyName": cleaned.get("companyName", ""),
-                    "errors": errors,
+                    "warnings": warnings,
                 }
             )
-            continue
-
-        seen_emails.add(email_key)
         lead = {
             "id": uuid.uuid4().hex,
             "partner": partner,
@@ -366,6 +539,7 @@ def import_uploaded_leads(file_bytes, partner):
         "imported": len(imported),
         "failed": len(failed),
         "missingColumns": missing_columns,
+        "warnings": row_warnings[:50],
         "errors": failed[:50],
     }
 
