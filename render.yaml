@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: partner-lead-portal
+    runtime: python
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: ADMIN_KEY
+        sync: false
+      - key: LEAD_DATA_DIR
+        value: /data/leads
+      - key: LEAD_EXPORT_DIR
+        value: /data/exports
+    disk:
+      name: lead-data
+      mountPath: /data
+      sizeGB: 1

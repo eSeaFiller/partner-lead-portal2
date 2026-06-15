@@ -1,0 +1,24 @@
+[
+  {
+    "id": "bb59650a0f16493184d4e59ed01d054f",
+    "partner": "Space X",
+    "status": "approved",
+    "createdAt": "2026-06-12T03:58:02+00:00",
+    "updatedAt": "2026-06-12T03:59:03+00:00",
+    "reviewNote": "",
+    "warnings": {},
+    "fields": {
+      "firstName": "ELON",
+      "lastName": "MUSK",
+      "country": "TW",
+      "companyName": "MOONEXPLORE",
+      "mobileNumber": "+65 877777777",
+      "workEmail": "DDDDDD@gmail.com",
+      "jobTitle": "CEO",
+      "companySize": "251-500",
+      "industry": "Industrial Manufacturing",
+      "subIndustry": "Electronics & Telecommunications Equipment",
+      "trackingCode": ""
+    }
+  }
+]

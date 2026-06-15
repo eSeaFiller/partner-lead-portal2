@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Partner Lead Portal</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Partner Lead Portal</p>
+        <h1 id="pageTitle">Lead submission</h1>
+      </div>
+      <nav class="tabs" aria-label="Views">
+        <button id="partnerTab" class="tab active" type="button">Submit lead</button>
+        <button id="adminTab" class="tab" type="button">Admin review</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="partnerView" class="view active">
+        <div class="partner-shell">
+          <aside class="intro-panel">
+            <div>
+              <p class="section-kicker">Partner submission</p>
+              <h2>Share qualified leads with the Lark team</h2>
+              <p class="intro-copy">Submit one lead at a time. Required fields are validated against the import template before review.</p>
+            </div>
+            <label class="partner-field" for="partner">
+              <span>Partner</span>
+              <input id="partner" name="partner" autocomplete="organization" placeholder="Partner name" required />
+            </label>
+            <div class="process-list" aria-label="Submission process">
+              <div><strong>1</strong><span>Submit lead details</span></div>
+              <div><strong>2</strong><span>Lark reviews duplicates and fit</span></div>
+              <div><strong>3</strong><span>Approved leads move to import</span></div>
+            </div>
+          </aside>
+
+          <div class="lead-workspace">
+          <form id="leadForm" class="panel lead-card" novalidate>
+            <div class="form-header">
+              <div>
+                <h2>Lead details</h2>
+                <p id="templatePath" class="muted"></p>
+              </div>
+            </div>
+
+            <div class="grid">
+              <label for="firstName">
+                <span>First Name</span>
+                <input id="firstName" name="firstName" autocomplete="given-name" required />
+                <small data-error-for="firstName"></small>
+              </label>
+              <label for="lastName">
+                <span>Last Name</span>
+                <input id="lastName" name="lastName" autocomplete="family-name" required />
+                <small data-error-for="lastName"></small>
+              </label>
+              <label for="country">
+                <span>Country</span>
+                <select id="country" name="country" required></select>
+                <small data-error-for="country"></small>
+              </label>
+              <label class="span-2" for="companyName">
+                <span>Company Name</span>
+                <input id="companyName" name="companyName" autocomplete="organization" required />
+                <small data-error-for="companyName"></small>
+              </label>
+              <label for="companySize">
+                <span>Company Size</span>
+                <select id="companySize" name="companySize" required></select>
+                <small data-error-for="companySize"></small>
+              </label>
+              <label for="workEmail">
+                <span>Work Email</span>
+                <input id="workEmail" name="workEmail" type="email" autocomplete="email" required />
+                <small data-error-for="workEmail"></small>
+              </label>
+              <label for="mobileNumber">
+                <span>Mobile Number</span>
+                <input id="mobileNumber" name="mobileNumber" autocomplete="tel" placeholder="+65 8123 4567" />
+                <small data-error-for="mobileNumber"></small>
+              </label>
+              <label for="jobTitle">
+                <span>Job Title</span>
+                <select id="jobTitle" name="jobTitle" required></select>
+                <small data-error-for="jobTitle"></small>
+              </label>
+              <label class="span-2" for="industry">
+                <span>Industry</span>
+                <select id="industry" name="industry" required></select>
+                <small data-error-for="industry"></small>
+              </label>
+              <label for="subIndustry">
+                <span>Sub Industry</span>
+                <select id="subIndustry" name="subIndustry" required></select>
+                <small data-error-for="subIndustry"></small>
+              </label>
+              <label class="span-2" for="trackingCode">
+                <span>Tracking Code</span>
+                <input id="trackingCode" name="trackingCode" placeholder="Optional campaign code" />
+                <small data-error-for="trackingCode"></small>
+              </label>
+            </div>
+
+            <div id="duplicateBox" class="notice hidden"></div>
+            <div class="actions">
+              <button class="primary" type="submit">Submit lead</button>
+              <button class="secondary" type="reset">Clear</button>
+              <span id="submitStatus" role="status"></span>
+            </div>
+          </form>
+          <form id="uploadForm" class="panel upload-card" novalidate>
+            <div>
+              <h2>Upload Excel</h2>
+              <p class="muted">Use the import template, keep row 1 headers and row 2 notes, then add leads from row 3.</p>
+            </div>
+            <label class="file-drop" for="leadFile">
+              <span>Excel file</span>
+              <input id="leadFile" name="file" type="file" accept=".xlsx" />
+            </label>
+            <div class="actions">
+              <button class="primary" type="submit">Parse and submit</button>
+              <span id="uploadStatus" role="status"></span>
+            </div>
+            <div id="uploadResult" class="upload-result hidden"></div>
+          </form>
+          </div>
+        </div>
+      </section>
+
+      <section id="adminView" class="view">
+        <form id="adminLogin" class="panel admin-login" novalidate>
+          <h2>Admin access</h2>
+          <p class="muted">Enter the admin key to review leads and export Excel files.</p>
+          <label for="adminKey">
+            <span>Admin Key</span>
+            <input id="adminKey" name="adminKey" type="password" autocomplete="current-password" />
+          </label>
+          <div class="actions">
+            <button class="primary" type="submit">Unlock admin</button>
+            <span id="adminLoginStatus" role="status"></span>
+          </div>
+        </form>
+
+        <div id="adminPanel" class="hidden">
+        <div class="admin-toolbar">
+          <div>
+            <h2>Review leads</h2>
+            <p id="leadSummary" class="muted">Loading leads...</p>
+          </div>
+          <div class="toolbar-controls">
+            <select id="statusFilter" aria-label="Filter status">
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+            <button id="refreshLeads" class="secondary" type="button">Refresh</button>
+            <button id="exportApproved" class="primary" type="button">Export approved Excel</button>
+          </div>
+        </div>
+        <div id="exportResult" class="export-result hidden"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Partner</th>
+                <th>Lead</th>
+                <th>Company</th>
+                <th>Country</th>
+                <th>Job Title</th>
+                <th>Warnings</th>
+                <th>Submitted</th>
+                <th>Review</th>
+              </tr>
+            </thead>
+            <tbody id="leadRows"></tbody>
+          </table>
+        </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
