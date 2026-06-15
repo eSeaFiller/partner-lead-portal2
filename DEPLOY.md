@@ -7,7 +7,7 @@ Use Render for the fastest permanent HTTPS URL.
 - Public partner form: `/partner`
 - Excel upload parsing: `/api/upload`
 - Internal review page: `/admin`
-- Admin and export APIs protected by `ADMIN_KEY`
+- Admin and export APIs open by default
 - Persistent data and exports stored on a Render disk at `/data`
 
 ## Required Render Settings
@@ -25,7 +25,7 @@ Environment variables:
 
 ```text
 HOST=0.0.0.0
-ADMIN_KEY=<set-a-strong-admin-key>
+ADMIN_AUTH_DISABLED=1
 LEAD_DATA_DIR=/data/leads
 LEAD_EXPORT_DIR=/data/exports
 ```
@@ -68,4 +68,4 @@ https://<service-name>.onrender.com/admin
 
 ## Important Boundary
 
-This is permanent hosting, not full Lark SSO. Admin is protected by `ADMIN_KEY`. To make admin visible only to Lark members, put `/admin` behind Lark SSO, Cloudflare Access, company VPN, or replace admin review with Feishu/Lark Base.
+This is permanent hosting, not full Lark SSO. With `ADMIN_AUTH_DISABLED=1`, anyone who can open `/admin` or call the admin APIs can view, update, and export leads. To restore backend protection, set `ADMIN_AUTH_DISABLED=0`, configure `ADMIN_KEY`, and put the review page behind Lark SSO, Cloudflare Access, company VPN, or Feishu/Lark Base.

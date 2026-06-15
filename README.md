@@ -33,16 +33,18 @@ Admin review:
 http://127.0.0.1:8787/admin
 ```
 
-Default admin key:
+Current default behavior:
 
 ```text
-lark-admin
+ADMIN_AUTH_DISABLED=1
 ```
 
-Set a stronger key before sharing an admin link:
+This means admin API checks are disabled by default. Anyone who can open `/admin` can view leads, update status, and export approved leads. Set `ADMIN_AUTH_DISABLED=0` and configure `ADMIN_KEY` if you want to re-enable admin protection.
+
+To restore admin protection:
 
 ```bash
-ADMIN_KEY='your-strong-admin-key' /Users/bytedance/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 server.py
+ADMIN_AUTH_DISABLED=0 ADMIN_KEY='your-strong-admin-key' /Users/bytedance/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 server.py
 ```
 
 ## Data
@@ -61,8 +63,8 @@ Rules:
 - Keep row 1 as headers.
 - Keep row 2 as the template note/sample row.
 - Add actual lead data from row 3.
-- Valid rows are submitted to pending review.
-- Invalid rows are skipped and returned with row-level error messages.
+- Rows are submitted to pending review even when columns or values are missing.
+- Missing columns, blank required values, enum mismatches, duplicate email/company, and cleaned values are returned as row-level warnings for admin review.
 
 Set another template path with:
 
@@ -75,9 +77,9 @@ LEAD_TEMPLATE_PATH=/path/to/template.xlsx python3 server.py
 This version separates the public partner form from admin review:
 
 - `/partner` is public lead submission.
-- `/admin` requires the admin key for review, status changes, and Excel export.
+- `/admin` is open by default for review, status changes, and Excel export.
 
-This is enough for MVP testing, but it is not full Lark identity security. To make admin review visible only to your Lark team in production, put this app behind one of:
+This is enough for MVP testing, but it is not Lark identity security. Anyone with the review URL can view, update, and export leads. To make admin review visible only to your Lark team in production, set `ADMIN_AUTH_DISABLED=0`, configure `ADMIN_KEY`, and put this app behind one of:
 
 - Lark SSO / Lark app login
 - company VPN or internal network
@@ -90,7 +92,7 @@ This is enough for MVP testing, but it is not full Lark identity security. To ma
 For quick internal testing on the same network, run with:
 
 ```bash
-HOST=0.0.0.0 ADMIN_KEY='your-strong-admin-key' /Users/bytedance/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 server.py
+HOST=0.0.0.0 ADMIN_AUTH_DISABLED=1 /Users/bytedance/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 server.py
 ```
 
 Then share your machine's LAN IP:
@@ -132,7 +134,7 @@ Install Command: pip install -r requirements.txt
 Environment variable:
 
 ```text
-ADMIN_KEY=<set-a-strong-admin-key>
+ADMIN_AUTH_DISABLED=1
 ```
 
 After deployment, open:

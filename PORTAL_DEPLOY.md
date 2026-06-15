@@ -14,6 +14,8 @@ This mode supports the complete feature set tested locally:
 - approved-lead Excel export using the import template
 - persistent local data and export files
 
+By default, backend admin checks are disabled. Anyone who can open `/admin` can view, update, and export leads.
+
 ## Docker Run
 
 Build:
@@ -28,7 +30,7 @@ Run:
 docker run -d \
   --name partner-lead-portal \
   -p 8787:8787 \
-  -e ADMIN_KEY='replace-with-a-strong-key' \
+  -e ADMIN_AUTH_DISABLED=1 \
   -v partner_lead_data:/data \
   partner-lead-portal
 ```
@@ -41,12 +43,6 @@ http://YOUR-SERVER:8787/admin
 ```
 
 ## Docker Compose
-
-Edit `docker-compose.yml` and replace:
-
-```text
-change-this-admin-key
-```
 
 Start:
 
@@ -75,4 +71,4 @@ Put the service behind HTTPS before sharing externally. Recommended options:
 - Cloudflare Tunnel with a named tunnel and fixed domain
 - Kubernetes or internal app platform ingress
 
-For admin access, do not rely only on a shared admin key if this becomes production-critical. Put `/admin` behind Lark SSO, VPN, Cloudflare Access, or your company identity layer.
+For admin access, the current default is intentionally open. If this becomes production-critical, set `ADMIN_AUTH_DISABLED=0`, configure `ADMIN_KEY`, and put `/admin` behind Lark SSO, VPN, Cloudflare Access, or your company identity layer.

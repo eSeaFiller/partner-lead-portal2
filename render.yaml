@@ -8,8 +8,8 @@ services:
     envVars:
       - key: HOST
         value: 0.0.0.0
-      - key: ADMIN_KEY
-        sync: false
+      - key: ADMIN_AUTH_DISABLED
+        value: "1"
       - key: LEAD_DATA_DIR
         value: /data/leads
       - key: LEAD_EXPORT_DIR

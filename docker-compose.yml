@@ -6,7 +6,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8787
-      ADMIN_KEY: change-this-admin-key
+      ADMIN_AUTH_DISABLED: "1"
       LEAD_DATA_DIR: /data/leads
       LEAD_EXPORT_DIR: /data/exports
     volumes:
