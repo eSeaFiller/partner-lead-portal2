@@ -408,13 +408,30 @@ def validate_lead(fields, block_duplicate_email=True):
     return cleaned, errors, warnings, duplicates
 
 
-def make_export(status):
+def safe_filename_part(value):
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip())
+    return cleaned.strip("-")[:80] or "batch"
+
+
+def make_export(status, batch_id=""):
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     leads = load_leads()
-    selected = [lead for lead in leads if status == "all" or lead.get("status") == status]
+    selected = []
+    for lead in leads:
+        if status != "all" and lead.get("status") != status:
+            continue
+        if batch_id:
+            lead_batch_id = lead.get("uploadBatchId") or ""
+            if batch_id == "__none__":
+                if lead_batch_id:
+                    continue
+            elif lead_batch_id != batch_id:
+                continue
+        selected.append(lead)
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    output_path = EXPORT_DIR / f"lead-export-{status}-{timestamp}.xlsx"
+    batch_suffix = f"-{safe_filename_part(batch_id)}" if batch_id else ""
+    output_path = EXPORT_DIR / f"lead-export-{status}{batch_suffix}-{timestamp}.xlsx"
     shutil.copyfile(TEMPLATE_PATH, output_path)
 
     wb = load_workbook(output_path)
@@ -500,6 +517,9 @@ def import_uploaded_leads(file_bytes, partner):
     failed = []
     row_warnings = []
     seen_emails = set()
+    batch_created_at = utc_now()
+    batch_id = f"batch-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    batch_label = f"{partner or 'Unknown partner'} · {batch_created_at}"
 
     for item in parsed_rows:
         cleaned, cleanup_warnings = clean_upload_fields(item["fields"], missing_columns)
@@ -523,6 +543,9 @@ def import_uploaded_leads(file_bytes, partner):
         lead = {
             "id": uuid.uuid4().hex,
             "partner": partner,
+            "uploadBatchId": batch_id,
+            "uploadBatchLabel": batch_label,
+            "uploadBatchCreatedAt": batch_created_at,
             "status": "pending",
             "createdAt": utc_now(),
             "updatedAt": utc_now(),
@@ -539,6 +562,8 @@ def import_uploaded_leads(file_bytes, partner):
         "parsed": len(parsed_rows),
         "imported": len(imported),
         "failed": len(failed),
+        "batchId": batch_id if imported else "",
+        "batchLabel": batch_label if imported else "",
         "missingColumns": missing_columns,
         "warnings": row_warnings[:50],
         "errors": failed[:50],
@@ -681,7 +706,8 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
             if status not in {"approved", "pending", "rejected", "all"}:
                 self.send_json({"error": "Invalid export status"}, HTTPStatus.BAD_REQUEST)
                 return
-            output_path, count = make_export(status)
+            batch_id = query.get("batchId", [""])[0]
+            output_path, count = make_export(status, batch_id)
             self.send_json({"path": str(output_path), "count": count})
             return
 

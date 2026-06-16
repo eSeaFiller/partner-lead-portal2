@@ -65,6 +65,7 @@ Rules:
 - Add actual lead data from row 3.
 - Rows are submitted to pending review even when columns or values are missing.
 - Missing columns, blank required values, enum mismatches, duplicate email/company, and cleaned values are returned as row-level warnings for admin review.
+- Each Excel upload creates one upload batch. Leads from the same file share the same `uploadBatchId`.
 
 Set another template path with:
 
@@ -144,3 +145,11 @@ https://<your-vercel-domain>/partner
 ```
 
 Important: Vercel serverless storage is not persistent. Submissions may not be reliably retained across cold starts or deployments unless this app is connected to Feishu/Lark Base, a database, or Vercel storage. Use Vercel for the permanent public page; use an external data store for production lead storage.
+
+## Batch Export
+
+Export approved leads from one upload batch:
+
+```text
+/api/export?status=approved&batchId=<uploadBatchId>
+```

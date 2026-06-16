@@ -189,6 +189,9 @@ function uploadSummary(payload) {
     `<strong>${payload.imported}</strong> leads submitted for review.`,
     `${payload.parsed} rows parsed · ${payload.failed} rows failed`,
   ];
+  if (payload.batchLabel || payload.batchId) {
+    lines.push(`<div>Upload batch: ${escapeHtml(payload.batchLabel || payload.batchId)}</div>`);
+  }
   if (payload.missingColumns?.length) {
     lines.push(
       `<div class="upload-warning">Missing columns were treated as blank: ${escapeHtml(payload.missingColumns.join(", "))}</div>`,
