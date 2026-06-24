@@ -59,12 +59,16 @@ Partners can upload an `.xlsx` file from `/partner`.
 
 Rules:
 
+- The top field is treated as `Activity Name`; review pages group leads by this value.
 - Use the same import template columns.
 - Keep row 1 as headers.
 - Keep row 2 as the template note/sample row.
 - Add actual lead data from row 3.
-- Rows are submitted to pending review even when columns or values are missing.
+- Download the standard template from `/template`.
+- Every field except `Tracking Code` is required.
+- For Excel uploads, valid rows are submitted and rows with errors are skipped with row-level error messages.
 - Missing columns, blank required values, enum mismatches, duplicate email/company, and cleaned values are returned as row-level warnings for admin review.
+- Job titles, company sizes, industries, and sub industries are cleaned against the template enum with exact aliases, keyword rules, numeric/range parsing, and conservative fuzzy matching before review/export.
 - Each Excel upload creates one upload batch. Leads from the same file share the same `uploadBatchId`.
 
 Set another template path with:

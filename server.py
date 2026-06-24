@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import uuid
+from difflib import SequenceMatcher
 from io import BytesIO
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -50,6 +51,12 @@ FIELD_TO_HEADER = {
     "trackingCode": "Tracking Code",
 }
 
+FIELD_LABELS = {
+    **FIELD_TO_HEADER,
+    "companyName": "Company Name",
+    "workEmail": "Work Email",
+}
+
 FIELD_ALIASES = {
     "firstName": ["first", "given name", "given", "first_name", "firstname", "名"],
     "lastName": ["last", "family name", "surname", "last_name", "lastname", "姓"],
@@ -66,31 +73,219 @@ FIELD_ALIASES = {
 
 JOB_TITLE_ALIASES = {
     "chief executive officer": "CEO",
+    "co founder": "CEO",
+    "cofounder": "CEO",
     "founder": "CEO",
     "owner": "CEO",
+    "general manager": "GM",
+    "managing director": "GM",
+    "vice president": "VP",
+    "svp": "VP",
+    "evp": "VP",
+    "chief strategy officer": "ChiefStrategyOfficer",
+    "strategy officer": "ChiefStrategyOfficer",
+    "board secretary": "BoardSecretary",
     "chief technology officer": "CTO",
     "chief information officer": "CIO",
     "chief financial officer": "CFO",
     "chief marketing officer": "CMO",
     "chief operating officer": "COO",
+    "chief human resources officer": "CHO",
+    "chief people officer": "CHO",
+    "chief security officer": "CISO",
+    "chief information security officer": "CISO",
+    "chief digital officer": "CDO",
+    "chief data officer": "CDO",
+    "chief experience officer": "CXO",
+    "it manager": "ITManager",
+    "information technology manager": "ITManager",
+    "hr manager": "HRSupervisor",
+    "human resources manager": "HRSupervisor",
+    "sales manager": "SalesSupervisor",
+    "sales supervisor": "SalesSupervisor",
+    "admin manager": "AdministrativeSupervisor",
+    "administrative manager": "AdministrativeSupervisor",
+    "product manager": "Product",
+    "operations manager": "OperationsManager",
+    "operation manager": "OperationsManager",
+    "technical manager": "TechnicalManager",
+    "technology manager": "TechnicalManager",
+    "marketing manager": "MarketingManager",
+    "finance manager": "FinancialOfficer",
+    "financial manager": "FinancialOfficer",
+    "accounting manager": "FinancialOfficer",
+    "procurement manager": "PurchasingSupervisor",
+    "purchasing manager": "PurchasingSupervisor",
+    "business development manager": "BusinessSupervisor",
+    "business manager": "BusinessSupervisor",
+    "design manager": "Design",
+    "designer": "Design",
+    "head of department": "HeadofDep",
+    "department head": "HeadofDep",
     "manager": "Manager",
     "director": "Director",
     "engineer": "Engineering",
+    "software engineer": "Engineering",
+    "developer": "Engineering",
+    "professor": "Professor",
+    "teacher": "Professor",
     "employee": "Employee",
+    "staff": "Employee",
     "student": "Student",
+    "others": "Others",
+    "other": "Others",
 }
 
-REQUIRED_FIELDS = [
-    "firstName",
-    "lastName",
-    "country",
-    "companyName",
-    "workEmail",
-    "jobTitle",
-    "companySize",
-    "industry",
-    "subIndustry",
+JOB_TITLE_KEYWORD_RULES = [
+    (r"\bchief\b.*\bexecutive\b|\bceo\b|\bfounder\b|\bowner\b", "CEO"),
+    (r"\bgeneral manager\b|\bmanaging director\b|\bcountry manager\b", "GM"),
+    (r"\bvice president\b|\bsvp\b|\bevp\b|\bvp\b", "VP"),
+    (r"\bchief\b.*\bstrategy\b|\bstrategy officer\b", "ChiefStrategyOfficer"),
+    (r"\bboard secretary\b", "BoardSecretary"),
+    (r"\bchief\b.*\boperating\b|\bcoo\b", "COO"),
+    (r"\bchief\b.*\binformation\b|\bcio\b", "CIO"),
+    (r"\bchief\b.*\btechnology\b|\bcto\b", "CTO"),
+    (r"\bchief\b.*\bsecurity\b|\bciso\b", "CISO"),
+    (r"\bchief\b.*\bmarketing\b|\bcmo\b", "CMO"),
+    (r"\bchief\b.*\bfinancial\b|\bcfo\b", "CFO"),
+    (r"\bchief\b.*\bdata\b|\bchief\b.*\bdigital\b|\bcdo\b", "CDO"),
+    (r"\bchief\b.*\bpeople\b|\bchief\b.*\bhuman\b|\bcho\b", "CHO"),
+    (r"\bchief\b|\bcxo\b", "CXO"),
+    (r"\bit\b.*\bmanager\b|\binformation technology\b", "ITManager"),
+    (r"\bhr\b|\bhuman resources\b|\bpeople ops\b", "HRSupervisor"),
+    (r"\bsales\b", "SalesSupervisor"),
+    (r"\badmin\b|\badministrative\b", "AdministrativeSupervisor"),
+    (r"\bproduct\b", "Product"),
+    (r"\boperations?\b", "OperationsManager"),
+    (r"\btechnical\b|\btechnology\b", "TechnicalManager"),
+    (r"\bmarketing\b", "MarketingManager"),
+    (r"\bfinance\b|\bfinancial\b|\baccounting\b", "FinancialOfficer"),
+    (r"\bprocurement\b|\bpurchasing\b", "PurchasingSupervisor"),
+    (r"\bbusiness development\b|\bbd\b", "BusinessSupervisor"),
+    (r"\bdesign\b|\bdesigner\b", "Design"),
+    (r"\bhead\b.*\bdepartment\b|\bdepartment head\b", "HeadofDep"),
+    (r"\bdirector\b", "Director"),
+    (r"\bengineer\b|\bdeveloper\b", "Engineering"),
+    (r"\bprofessor\b|\bteacher\b", "Professor"),
+    (r"\bstudent\b|\bintern\b", "Student"),
+    (r"\bmanager\b|\bsupervisor\b|\blead\b", "Manager"),
+    (r"\bstaff\b|\bemployee\b|\bexecutive\b|\bassistant\b|\bofficer\b", "Employee"),
 ]
+
+INDUSTRY_ALIASES = {
+    "saas": ("Technology & Internet", "Software & SaaS"),
+    "tech": ("Technology & Internet", "Technology & Internet Others"),
+    "technology": ("Technology & Internet", "Technology & Internet Others"),
+    "internet": ("Technology & Internet", "Technology & Internet Others"),
+    "software": ("Technology & Internet", "Software & SaaS"),
+    "cloud software": ("Technology & Internet", "Software & SaaS"),
+    "enterprise software": ("Technology & Internet", "Software & SaaS"),
+    "it": ("Technology & Internet", "IT Infrastructure"),
+    "it services": ("Technology & Internet", "IT Infrastructure"),
+    "information technology": ("Technology & Internet", "IT Infrastructure"),
+    "ai": ("Technology & Internet", "AI / Big Data / IoT / Robotics / VR"),
+    "artificial intelligence": ("Technology & Internet", "AI / Big Data / IoT / Robotics / VR"),
+    "big data": ("Technology & Internet", "AI / Big Data / IoT / Robotics / VR"),
+    "iot": ("Technology & Internet", "AI / Big Data / IoT / Robotics / VR"),
+    "robotics": ("Technology & Internet", "AI / Big Data / IoT / Robotics / VR"),
+    "ecommerce": ("Technology & Internet", "Ecommerce"),
+    "e-commerce": ("Technology & Internet", "Ecommerce"),
+    "online marketplace": ("Technology & Internet", "Specialized Online Marketplace"),
+    "gaming": ("Technology & Internet", "Gaming"),
+    "game": ("Technology & Internet", "Gaming"),
+    "social media": ("Technology & Internet", "Social Media, News & Entertainment"),
+    "advertising": ("Technology & Internet", "Marketing, Growth & Advertising"),
+    "martech": ("Technology & Internet", "Marketing, Growth & Advertising"),
+    "marketing agency": ("Technology & Internet", "Marketing, Growth & Advertising"),
+    "telecom": ("Telecommunications", "Telecommunications Others"),
+    "telco": ("Telecommunications", "Telecommunications Others"),
+    "education": ("Education", "Education Others"),
+    "edtech": ("Education", "Online Education"),
+    "online education": ("Education", "Online Education"),
+    "school": ("Education", "K-12 Education"),
+    "university": ("Education", "University & College"),
+    "finance": ("Financial Services", "Financial Services Others"),
+    "banking": ("Financial Services", "Banks & Asset Management"),
+    "bank": ("Financial Services", "Banks & Asset Management"),
+    "fintech": ("Financial Services", "FinTech"),
+    "insurance": ("Financial Services", "Insurance"),
+    "vc": ("Financial Services", "PE & VC"),
+    "venture capital": ("Financial Services", "PE & VC"),
+    "healthcare": ("Healthcare", "Healthcare Others"),
+    "health care": ("Healthcare", "Healthcare Others"),
+    "healthtech": ("Healthcare", "Health Tech"),
+    "hospital": ("Healthcare", "Hospitals, Clinics & Specialists"),
+    "pharma": ("Healthcare", "Pharmaceuticals & Biotech"),
+    "biotech": ("Healthcare", "Pharmaceuticals & Biotech"),
+    "medical device": ("Healthcare", "Medical Devices & Equipment"),
+    "retail": ("Consumer, Retail & Wholesale", "Consumer Retail Products & Brands"),
+    "consumer goods": ("Consumer, Retail & Wholesale", "Consumer Retail Products & Brands"),
+    "fmcg": ("Consumer, Retail & Wholesale", "Consumer Retail Products & Brands"),
+    "hotel": ("Consumer, Retail & Wholesale", "Accommodation & Hotels"),
+    "hospitality": ("Consumer, Retail & Wholesale", "Accommodation & Hotels"),
+    "food and beverage": ("Consumer, Retail & Wholesale", "Food & Beverage"),
+    "f&b": ("Consumer, Retail & Wholesale", "Food & Beverage"),
+    "wholesale": ("Consumer, Retail & Wholesale", "Wholesale"),
+    "manufacturing": ("Industrial Manufacturing", "Industrial Manufacturing Others"),
+    "manufacturer": ("Industrial Manufacturing", "Industrial Manufacturing Others"),
+    "electronics": ("Industrial Manufacturing", "Electronics & Telecommunications Equipment"),
+    "automotive": ("Industrial Manufacturing", "Vehicles & Automobile Parts"),
+    "automobile": ("Industrial Manufacturing", "Vehicles & Automobile Parts"),
+    "chemical": ("Industrial Manufacturing", "Chemicals"),
+    "professional services": ("Professional Services", "Professional Services Others"),
+    "consulting": ("Professional Services", "Management Consulting"),
+    "management consulting": ("Professional Services", "Management Consulting"),
+    "legal": ("Professional Services", "Legal"),
+    "law firm": ("Professional Services", "Legal"),
+    "accounting": ("Professional Services", "Accounting, Audit & Tax"),
+    "audit": ("Professional Services", "Accounting, Audit & Tax"),
+    "staffing": ("Professional Services", "HR & Staffing"),
+    "real estate": ("Real Estate & Construction", "Commercial & Residential Real Estate"),
+    "property": ("Real Estate & Construction", "Commercial & Residential Real Estate"),
+    "construction": ("Real Estate & Construction", "Construction"),
+    "logistics": ("Transportation & Logistics", "Freight & Logistics Services"),
+    "transportation": ("Transportation & Logistics", "Transportation & Logistics Others"),
+    "shipping": ("Transportation & Logistics", "Marine Shipping & Transportation"),
+    "airline": ("Transportation & Logistics", "Airlines"),
+    "government": ("Public Service & Non-profits", "Government"),
+    "ngo": ("Public Service & Non-profits", "NGOs"),
+    "nonprofit": ("Public Service & Non-profits", "NGOs"),
+    "energy": ("Energy, Mining, Utilities & Waste", "Energy, Mining, Utilities & Waste Others"),
+    "oil and gas": ("Energy, Mining, Utilities & Waste", "Oil & Gas"),
+    "mining": ("Energy, Mining, Utilities & Waste", "Minerals & Mining"),
+    "agriculture": ("Agriculture", "Agriculture Others"),
+    "crypto": ("Web3, Blockchain & Crypto", "Web3, Blockchain & Crypto"),
+    "blockchain": ("Web3, Blockchain & Crypto", "Web3, Blockchain & Crypto"),
+    "web3": ("Web3, Blockchain & Crypto", "Web3, Blockchain & Crypto"),
+}
+
+INDUSTRY_KEYWORD_RULES = [
+    (r"\bsaas\b|\bsoftware\b|\bcrm\b|\berp\b", ("Technology & Internet", "Software & SaaS")),
+    (r"\bai\b|\bartificial intelligence\b|\bbig data\b|\biot\b|\brobotics\b|\bvr\b", ("Technology & Internet", "AI / Big Data / IoT / Robotics / VR")),
+    (r"\be-?commerce\b|\bonline shop\b|\bonline store\b", ("Technology & Internet", "Ecommerce")),
+    (r"\bmarketplace\b", ("Technology & Internet", "Specialized Online Marketplace")),
+    (r"\bgaming\b|\bgame\b", ("Technology & Internet", "Gaming")),
+    (r"\bfintech\b", ("Financial Services", "FinTech")),
+    (r"\bbank\b|\bbanking\b", ("Financial Services", "Banks & Asset Management")),
+    (r"\binsurance\b", ("Financial Services", "Insurance")),
+    (r"\bhealth ?tech\b", ("Healthcare", "Health Tech")),
+    (r"\bhospital\b|\bclinic\b", ("Healthcare", "Hospitals, Clinics & Specialists")),
+    (r"\bpharma\b|\bbiotech\b", ("Healthcare", "Pharmaceuticals & Biotech")),
+    (r"\bedtech\b|\bonline education\b", ("Education", "Online Education")),
+    (r"\bschool\b|\bk-?12\b", ("Education", "K-12 Education")),
+    (r"\buniversity\b|\bcollege\b", ("Education", "University & College")),
+    (r"\bretail\b|\bfmcg\b|\bconsumer goods\b", ("Consumer, Retail & Wholesale", "Consumer Retail Products & Brands")),
+    (r"\bhotel\b|\bhospitality\b", ("Consumer, Retail & Wholesale", "Accommodation & Hotels")),
+    (r"\bf&b\b|\bfood\b|\bbeverage\b", ("Consumer, Retail & Wholesale", "Food & Beverage")),
+    (r"\bmanufactur", ("Industrial Manufacturing", "Industrial Manufacturing Others")),
+    (r"\bconsulting\b", ("Professional Services", "Management Consulting")),
+    (r"\blegal\b|\blaw firm\b", ("Professional Services", "Legal")),
+    (r"\breal estate\b|\bproperty\b", ("Real Estate & Construction", "Commercial & Residential Real Estate")),
+    (r"\blogistics\b|\bfreight\b", ("Transportation & Logistics", "Freight & Logistics Services")),
+    (r"\bcrypto\b|\bblockchain\b|\bweb3\b", ("Web3, Blockchain & Crypto", "Web3, Blockchain & Crypto")),
+]
+
+REQUIRED_FIELDS = [field for field in FIELD_TO_HEADER if field != "trackingCode"]
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
@@ -264,6 +459,7 @@ def enum_lookup_maps():
     industry_map = {}
     subindustry_map = {}
     subindustry_by_industry = {}
+    subindustry_parent = {}
     for industry in SCHEMA["industries"]:
         industry_map[normalize_lookup_key(industry["value"])] = industry["value"]
         industry_map[normalize_lookup_key(industry["label"])] = industry["value"]
@@ -271,6 +467,7 @@ def enum_lookup_maps():
         for sub in industry["subIndustries"]:
             subindustry_map[normalize_lookup_key(sub["value"])] = sub["value"]
             subindustry_map[normalize_lookup_key(sub["label"])] = sub["value"]
+            subindustry_parent[sub["value"]] = industry["value"]
             subindustry_by_industry[industry["value"]][normalize_lookup_key(sub["value"])] = sub["value"]
             subindustry_by_industry[industry["value"]][normalize_lookup_key(sub["label"])] = sub["value"]
 
@@ -281,6 +478,7 @@ def enum_lookup_maps():
         "industry": industry_map,
         "subIndustry": subindustry_map,
         "subIndustryByIndustry": subindustry_by_industry,
+        "subIndustryParent": subindustry_parent,
     }
 
 
@@ -296,6 +494,188 @@ def map_enum_value(field, value, maps, warnings):
     return original
 
 
+def company_size_bucket(number):
+    buckets = [
+        (1, 10, "1-10"),
+        (11, 20, "11-20"),
+        (21, 50, "21-50"),
+        (51, 100, "51-100"),
+        (101, 250, "101-250"),
+        (251, 500, "251-500"),
+        (501, 999, "501-999"),
+        (1000, 4999, "1000-4999"),
+        (5000, 9999, "5000-9999"),
+    ]
+    for low, high, label in buckets:
+        if low <= number <= high:
+            return label
+    if number >= 10000:
+        return ">10000"
+    return ""
+
+
+def clean_company_size(value, maps):
+    original = str(value or "").strip()
+    if not original:
+        return "", ""
+
+    mapped = maps["companySize"].get(normalize_lookup_key(original))
+    if mapped:
+        return mapped, "exact"
+
+    lowered = original.lower().replace(",", "")
+    if re.search(r"\b(above|over|more than|greater than)\b", lowered) and re.search(r"\b10000\b", lowered):
+        return ">10000", "range"
+
+    numbers = [int(match) for match in re.findall(r"\d+", lowered)]
+    if not numbers:
+        return original, ""
+
+    if re.search(r"\b(less than|under|below|fewer than|up to)\b", lowered):
+        return company_size_bucket(max(1, numbers[0])), "range"
+
+    if re.search(r"\b(above|over|more than|greater than)\b", lowered):
+        return company_size_bucket(numbers[0] + 1), "range"
+
+    if len(numbers) >= 2:
+        midpoint = round((numbers[0] + numbers[1]) / 2)
+        return company_size_bucket(midpoint), "range"
+
+    bucket = company_size_bucket(numbers[0])
+    return (bucket, "count") if bucket else (original, "")
+
+
+def fuzzy_job_title(value, maps):
+    original = str(value or "").strip()
+    if not original:
+        return "", ""
+
+    exact = maps["jobTitle"].get(normalize_lookup_key(original))
+    if exact:
+        return exact, "exact"
+
+    lowered = re.sub(r"[^a-z0-9]+", " ", original.lower()).strip()
+    for pattern, target in JOB_TITLE_KEYWORD_RULES:
+        if re.search(pattern, lowered):
+            return target, "keyword"
+
+    candidates = {}
+    for item in SCHEMA["jobTitles"]:
+        candidates[item["value"]] = item["value"]
+        candidates[item["label"]] = item["value"]
+    for alias, target in JOB_TITLE_ALIASES.items():
+        candidates[alias] = target
+
+    normalized_original = normalize_lookup_key(original)
+    best_target = ""
+    best_score = 0
+    for label, target in candidates.items():
+        normalized_label = normalize_lookup_key(label)
+        if not normalized_label:
+            continue
+        score = SequenceMatcher(None, normalized_original, normalized_label).ratio()
+        if score > best_score:
+            best_score = score
+            best_target = target
+
+    if best_score >= 0.88:
+        return best_target, "fuzzy"
+
+    if best_score >= 0.78 and best_target in {"Manager", "Director", "Engineering", "Employee", "Student", "Professor"}:
+        return best_target, "fuzzy"
+
+    return original, ""
+
+
+def industry_candidates():
+    candidates = {}
+    for industry in SCHEMA["industries"]:
+        candidates[industry["value"]] = (industry["value"], "")
+        candidates[industry["label"]] = (industry["value"], "")
+        for sub in industry["subIndustries"]:
+            candidates[sub["value"]] = (industry["value"], sub["value"])
+            candidates[sub["label"]] = (industry["value"], sub["value"])
+    for alias, target in INDUSTRY_ALIASES.items():
+        candidates[alias] = target
+    return candidates
+
+
+def match_industry_term(value, maps):
+    original = str(value or "").strip()
+    if not original:
+        return "", "", ""
+
+    normalized = normalize_lookup_key(original)
+    industry = maps["industry"].get(normalized)
+    if industry:
+        return industry, "", "exact"
+
+    sub_industry = maps["subIndustry"].get(normalized)
+    if sub_industry:
+        return maps["subIndustryParent"].get(sub_industry, ""), sub_industry, "exact"
+
+    alias = INDUSTRY_ALIASES.get(normalize_lookup_key(original)) or INDUSTRY_ALIASES.get(original.lower().strip())
+    if alias:
+        return alias[0], alias[1], "alias"
+
+    lowered = re.sub(r"[^a-z0-9&+]+", " ", original.lower()).strip()
+    for pattern, target in INDUSTRY_KEYWORD_RULES:
+        if re.search(pattern, lowered):
+            return target[0], target[1], "keyword"
+
+    best_industry = ""
+    best_sub = ""
+    best_score = 0
+    for label, target in industry_candidates().items():
+        normalized_label = normalize_lookup_key(label)
+        if not normalized_label:
+            continue
+        score = SequenceMatcher(None, normalized, normalized_label).ratio()
+        if score > best_score:
+            best_score = score
+            best_industry, best_sub = target
+
+    if best_score >= 0.88:
+        return best_industry, best_sub, "fuzzy"
+
+    return original, "", ""
+
+
+def clean_industry_fields(cleaned, maps, warnings):
+    original_industry = cleaned["industry"]
+    original_sub = cleaned["subIndustry"]
+
+    industry, sub_industry, method = match_industry_term(original_industry, maps)
+    if industry and industry != original_industry:
+        warnings["industry"] = f"Cleaned industry '{original_industry}' to '{industry}' by {method} match"
+    cleaned["industry"] = industry
+
+    sub_from_sub_field = ""
+    sub_method = ""
+    if original_sub:
+        matched_industry, matched_sub, sub_method = match_industry_term(original_sub, maps)
+        if matched_sub:
+            sub_from_sub_field = matched_sub
+            if not cleaned["industry"] or cleaned["industry"] != matched_industry:
+                if cleaned["industry"] and cleaned["industry"] != matched_industry:
+                    warnings["industry"] = f"Adjusted industry from '{cleaned['industry']}' to '{matched_industry}' based on sub industry '{original_sub}'"
+                cleaned["industry"] = matched_industry
+        elif cleaned["industry"]:
+            scoped = maps["subIndustryByIndustry"].get(cleaned["industry"], {}).get(normalize_lookup_key(original_sub))
+            if scoped:
+                sub_from_sub_field = scoped
+                sub_method = "exact"
+
+    final_sub = sub_from_sub_field or sub_industry
+    if final_sub:
+        if final_sub != original_sub:
+            source = original_sub or original_industry
+            warnings["subIndustry"] = f"Cleaned sub industry '{source}' to '{final_sub}' by {(sub_method or method)} match"
+        cleaned["subIndustry"] = final_sub
+
+    return cleaned
+
+
 def clean_upload_fields(fields, missing_columns):
     maps = enum_lookup_maps()
     cleaned = {key: str(fields.get(key, "")).strip() for key in FIELD_TO_HEADER}
@@ -307,28 +687,34 @@ def clean_upload_fields(fields, missing_columns):
             warnings["workEmail"] = f"Cleaned email '{cleaned['workEmail']}' to '{lowered}'"
         cleaned["workEmail"] = lowered
 
-    for field in ["country", "jobTitle", "companySize", "industry"]:
+    for field in ["country"]:
         cleaned[field] = map_enum_value(field, cleaned[field], maps, warnings)
 
-    if cleaned["subIndustry"]:
-        by_industry = maps["subIndustryByIndustry"].get(cleaned["industry"], {})
-        original = cleaned["subIndustry"]
-        mapped = by_industry.get(normalize_lookup_key(original)) or maps["subIndustry"].get(normalize_lookup_key(original))
-        if mapped:
-            if mapped != original:
-                warnings["subIndustry"] = f"Cleaned '{original}' to '{mapped}'"
-            cleaned["subIndustry"] = mapped
+    company_size, company_size_method = clean_company_size(cleaned["companySize"], maps)
+    if company_size != cleaned["companySize"]:
+        warnings["companySize"] = f"Cleaned company size '{cleaned['companySize']}' to '{company_size}' by {company_size_method} match"
+    cleaned["companySize"] = company_size
+
+    job_title, job_title_method = fuzzy_job_title(cleaned["jobTitle"], maps)
+    if job_title != cleaned["jobTitle"]:
+        warnings["jobTitle"] = f"Cleaned job title '{cleaned['jobTitle']}' to '{job_title}' by {job_title_method} match"
+    cleaned["jobTitle"] = job_title
+
+    cleaned = clean_industry_fields(cleaned, maps, warnings)
 
     for header in missing_columns:
         field = next((key for key, value in FIELD_TO_HEADER.items() if value == header), None)
-        if field:
+        if field and field not in REQUIRED_FIELDS:
             warnings[field] = f"Missing column '{header}'; treated as blank"
 
     return cleaned, warnings
 
 
 def warnings_from_errors(errors):
-    return {field: message for field, message in errors.items()}
+    return {
+        field: f"{FIELD_LABELS.get(field, field)}: {message}" if message == "Required" else message
+        for field, message in errors.items()
+    }
 
 
 def duplicate_report(fields, exclude_id=None):
@@ -413,7 +799,7 @@ def safe_filename_part(value):
     return cleaned.strip("-")[:80] or "batch"
 
 
-def make_export(status, batch_id=""):
+def make_export(status, batch_id="", export_tracking_code=""):
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     leads = load_leads()
     selected = []
@@ -443,7 +829,8 @@ def make_export(status, batch_id=""):
     for index, lead in enumerate(selected, start=3):
         fields = lead.get("fields", {})
         for col_index, key in enumerate(FIELD_TO_HEADER, start=1):
-            ws.cell(row=index, column=col_index, value=fields.get(key, ""))
+            value = export_tracking_code if key == "trackingCode" and export_tracking_code else fields.get(key, "")
+            ws.cell(row=index, column=col_index, value=value)
 
     wb.save(output_path)
     return output_path, len(selected)
@@ -519,12 +906,12 @@ def import_uploaded_leads(file_bytes, partner):
     seen_emails = set()
     batch_created_at = utc_now()
     batch_id = f"batch-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
-    batch_label = f"{partner or 'Unknown partner'} · {batch_created_at}"
+    batch_label = f"{partner or 'Unknown activity'} · {batch_created_at}"
 
     for item in parsed_rows:
         cleaned, cleanup_warnings = clean_upload_fields(item["fields"], missing_columns)
         cleaned, errors, validation_warnings, duplicates = validate_lead(cleaned, block_duplicate_email=False)
-        warnings = {**cleanup_warnings, **validation_warnings, **warnings_from_errors(errors)}
+        warnings = {**cleanup_warnings, **validation_warnings}
         email_key = cleaned.get("workEmail", "").lower()
         if email_key and email_key in seen_emails:
             warnings["workEmail"] = "Duplicate email inside uploaded file"
@@ -540,6 +927,16 @@ def import_uploaded_leads(file_bytes, partner):
                     "warnings": warnings,
                 }
             )
+        if errors:
+            failed.append(
+                {
+                    "row": item["row"],
+                    "email": cleaned.get("workEmail", ""),
+                    "companyName": cleaned.get("companyName", ""),
+                    "errors": errors,
+                }
+            )
+            continue
         lead = {
             "id": uuid.uuid4().hex,
             "partner": partner,
@@ -567,6 +964,8 @@ def import_uploaded_leads(file_bytes, partner):
         "missingColumns": missing_columns,
         "warnings": row_warnings[:50],
         "errors": failed[:50],
+        "partial": bool(imported and failed),
+        "rejected": bool(failed and not imported),
     }
 
 
@@ -615,7 +1014,9 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
             raise ValueError("No Excel file uploaded.")
         if not upload.filename.lower().endswith(".xlsx"):
             raise ValueError("Only .xlsx files are supported.")
-        partner = form.getfirst("partner", "Unknown Partner").strip() or "Unknown Partner"
+        partner = form.getfirst("partner", "").strip()
+        if not partner:
+            raise ValueError("Activity name is required.")
         return upload.file.read(), partner
 
     def is_admin_request(self):
@@ -677,6 +1078,20 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
             self.send_json({"status": "ok"})
             return
 
+        if parsed.path == "/template":
+            if not TEMPLATE_PATH.exists():
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            body = TEMPLATE_PATH.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_cors_headers()
+            self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            self.send_header("Content-Disposition", f'attachment; filename="{TEMPLATE_PATH.name}"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if parsed.path == "/api/leads":
             if PUBLIC_ONLY:
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -707,7 +1122,8 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Invalid export status"}, HTTPStatus.BAD_REQUEST)
                 return
             batch_id = query.get("batchId", [""])[0]
-            output_path, count = make_export(status, batch_id)
+            export_tracking_code = query.get("trackingCode", [""])[0].strip()
+            output_path, count = make_export(status, batch_id, export_tracking_code)
             self.send_json({"path": str(output_path), "count": count})
             return
 
@@ -738,7 +1154,10 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/leads":
             payload = self.read_json()
-            partner = str(payload.get("partner", "")).strip() or "Unknown Partner"
+            partner = str(payload.get("partner", "")).strip()
+            if not partner:
+                self.send_json({"errors": {"partner": "Activity name is required"}}, HTTPStatus.BAD_REQUEST)
+                return
             cleaned, errors, warnings, duplicates = validate_lead(payload.get("fields", {}))
             if errors:
                 self.send_json(
@@ -774,7 +1193,7 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
-            self.send_json(result, HTTPStatus.CREATED)
+            self.send_json(result, HTTPStatus.BAD_REQUEST if result.get("rejected") else HTTPStatus.CREATED)
             return
 
         self.send_error(HTTPStatus.NOT_FOUND)

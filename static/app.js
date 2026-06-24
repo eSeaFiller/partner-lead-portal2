@@ -19,6 +19,22 @@ const fields = [
   "trackingCode",
 ];
 
+const requiredLeadFields = fields.filter((field) => field !== "trackingCode");
+
+const FIELD_LABELS = {
+  firstName: "First Name",
+  lastName: "Last Name",
+  country: "Country",
+  companyName: "Company Name",
+  mobileNumber: "Mobile Number",
+  workEmail: "Work Email",
+  jobTitle: "Job Title",
+  companySize: "Company Size",
+  industry: "Industry",
+  subIndustry: "Sub Industry",
+  trackingCode: "Tracking Code",
+};
+
 const form = document.querySelector("#leadForm");
 const uploadForm = document.querySelector("#uploadForm");
 const duplicateBox = document.querySelector("#duplicateBox");
@@ -88,6 +104,19 @@ function showErrors(errors = {}, warnings = {}) {
   }
 }
 
+function localRequiredErrors(values) {
+  return requiredLeadFields.reduce((errors, field) => {
+    if (!String(values[field] || "").trim()) {
+      errors[field] = `${FIELD_LABELS[field]} is required`;
+    }
+    return errors;
+  }, {});
+}
+
+function partnerName() {
+  return document.querySelector("#partner").value.trim();
+}
+
 function duplicateText(duplicates) {
   const lines = [];
   if (Array.isArray(duplicates.email) ? duplicates.email.length : duplicates.email) {
@@ -117,14 +146,22 @@ async function checkDuplicates() {
 async function submitLead(event) {
   event.preventDefault();
   clearErrors();
+  const fields = valuesFromForm();
+  const localErrors = localRequiredErrors(fields);
+  if (!partnerName()) localErrors.partner = "Activity name is required";
+  if (Object.keys(localErrors).length) {
+    showErrors(localErrors);
+    submitStatus.textContent = "Please fill every field except Tracking Code.";
+    return;
+  }
   submitStatus.textContent = "Submitting...";
 
   const response = await fetch("/api/leads", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      partner: document.querySelector("#partner").value.trim(),
-      fields: valuesFromForm(),
+      partner: partnerName(),
+      fields,
     }),
   });
   const payload = await response.json();
@@ -150,6 +187,12 @@ async function uploadLeads(event) {
   event.preventDefault();
   uploadResult.classList.add("hidden");
   uploadResult.textContent = "";
+  clearErrors();
+  if (!partnerName()) {
+    showErrors({ partner: "Activity name is required" });
+    uploadStatus.textContent = "Enter activity name before uploading.";
+    return;
+  }
   const file = document.querySelector("#leadFile").files[0];
   if (!file) {
     uploadStatus.textContent = "Choose an .xlsx file first.";
@@ -162,7 +205,7 @@ async function uploadLeads(event) {
 
   uploadStatus.textContent = "Uploading and parsing...";
   const body = new FormData();
-  body.append("partner", document.querySelector("#partner").value.trim());
+  body.append("partner", partnerName());
   body.append("file", file);
 
   const response = await fetch("/api/upload", {
@@ -173,7 +216,7 @@ async function uploadLeads(event) {
 
   if (!response.ok) {
     uploadStatus.textContent = "Upload failed.";
-    uploadResult.innerHTML = escapeHtml(payload.error || "Unknown error");
+    uploadResult.innerHTML = payload.errors?.length ? uploadSummary(payload) : escapeHtml(payload.error || "Unknown error");
     uploadResult.classList.remove("hidden");
     return;
   }
@@ -184,24 +227,35 @@ async function uploadLeads(event) {
   uploadForm.reset();
 }
 
+function fieldMessage(field, message) {
+  const label = FIELD_LABELS[field] || field;
+  const text = String(message || "");
+  return text.includes(":") ? text : `${label}: ${text}`;
+}
+
 function uploadSummary(payload) {
   const lines = [
     `<strong>${payload.imported}</strong> leads submitted for review.`,
     `${payload.parsed} rows parsed · ${payload.failed} rows failed`,
   ];
+  if (payload.rejected) {
+    lines.push(`<div class="upload-warning">No leads were submitted. Fix the rows below, then upload again.</div>`);
+  } else if (payload.partial) {
+    lines.push(`<div class="upload-warning">Valid rows were submitted. Rows with errors were skipped.</div>`);
+  }
   if (payload.batchLabel || payload.batchId) {
     lines.push(`<div>Upload batch: ${escapeHtml(payload.batchLabel || payload.batchId)}</div>`);
   }
   if (payload.missingColumns?.length) {
     lines.push(
-      `<div class="upload-warning">Missing columns were treated as blank: ${escapeHtml(payload.missingColumns.join(", "))}</div>`,
+      `<div class="upload-warning">Missing columns found: ${escapeHtml(payload.missingColumns.join(", "))}</div>`,
     );
   }
   if (payload.errors?.length) {
     const items = payload.errors
       .map((item) => {
         const messages = Object.entries(item.errors)
-          .map(([field, message]) => `${field}: ${message}`)
+          .map(([field, message]) => fieldMessage(field, message))
           .join("; ");
         return `<li>Row ${escapeHtml(item.row)} · ${escapeHtml(item.email || item.companyName || "No identifier")} · ${escapeHtml(messages)}</li>`;
       })
@@ -212,7 +266,7 @@ function uploadSummary(payload) {
     const warningItems = payload.warnings
       .map((item) => {
         const messages = Object.entries(item.warnings)
-          .map(([field, message]) => `${field}: ${message}`)
+          .map(([field, message]) => fieldMessage(field, message))
           .join("; ");
         return `<li>Row ${escapeHtml(item.row)} · ${escapeHtml(item.email || item.companyName || "No identifier")} · ${escapeHtml(messages)}</li>`;
       })
@@ -224,7 +278,9 @@ function uploadSummary(payload) {
 
 function warningSummary(lead) {
   const warnings = lead.warnings || {};
-  const values = Object.values(warnings).filter(Boolean);
+  const values = Object.entries(warnings)
+    .filter(([, message]) => Boolean(message))
+    .map(([field, message]) => fieldMessage(field, message));
   return values.length ? values.join("; ") : "None";
 }
 
@@ -254,7 +310,7 @@ function renderLeads() {
     const f = lead.fields;
     tr.innerHTML = `
       <td><span class="status ${lead.status}">${lead.status}</span></td>
-      <td>${escapeHtml(lead.partner)}</td>
+      <td>${escapeHtml(lead.partner || "Unknown activity")}</td>
       <td><strong>${escapeHtml(f.firstName)} ${escapeHtml(f.lastName)}</strong><br>${escapeHtml(f.workEmail)}</td>
       <td>${escapeHtml(f.companyName)}</td>
       <td>${escapeHtml(f.country)}</td>
