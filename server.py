@@ -718,29 +718,35 @@ def warnings_from_errors(errors):
 
 
 def duplicate_report(fields, exclude_id=None):
+    name_key = normalize_lookup_key(f"{fields.get('firstName', '')} {fields.get('lastName', '')}")
     email = (fields.get("workEmail") or "").strip().lower()
-    company_key = normalize_company(fields.get("companyName"))
-    country = (fields.get("country") or "").strip()
+    mobile = re.sub(r"\D+", "", fields.get("mobileNumber") or "")
     leads = load_leads()
+    name_matches = []
     email_matches = []
-    company_matches = []
+    mobile_matches = []
 
     for lead in leads:
         if exclude_id and lead["id"] == exclude_id:
             continue
         existing = lead.get("fields", {})
+        existing_name_key = normalize_lookup_key(f"{existing.get('firstName', '')} {existing.get('lastName', '')}")
+        existing_mobile = re.sub(r"\D+", "", existing.get("mobileNumber") or "")
+        if name_key and name_key == existing_name_key:
+            name_matches.append(summarize_lead(lead))
         if email and email == (existing.get("workEmail") or "").strip().lower():
             email_matches.append(summarize_lead(lead))
-        if company_key and country and country == existing.get("country") and company_key == normalize_company(existing.get("companyName")):
-            company_matches.append(summarize_lead(lead))
+        if mobile and mobile == existing_mobile:
+            mobile_matches.append(summarize_lead(lead))
 
-    return {"email": email_matches, "company": company_matches}
+    return {"name": name_matches, "email": email_matches, "mobile": mobile_matches}
 
 
 def public_duplicate_report(duplicates):
     return {
+        "name": bool(duplicates.get("name")),
         "email": bool(duplicates.get("email")),
-        "company": bool(duplicates.get("company")),
+        "mobile": bool(duplicates.get("mobile")),
     }
 
 
@@ -749,8 +755,12 @@ def summarize_lead(lead):
     return {
         "id": lead.get("id"),
         "partner": lead.get("partner"),
+        "partnerName": lead.get("partnerName"),
         "status": lead.get("status"),
+        "firstName": fields.get("firstName"),
+        "lastName": fields.get("lastName"),
         "workEmail": fields.get("workEmail"),
+        "mobileNumber": fields.get("mobileNumber"),
         "companyName": fields.get("companyName"),
         "createdAt": lead.get("createdAt"),
     }
@@ -782,14 +792,13 @@ def validate_lead(fields, block_duplicate_email=True):
         errors["subIndustry"] = "Sub industry must belong to selected industry"
 
     duplicates = duplicate_report(cleaned)
+    if duplicates["name"]:
+        errors["firstName"] = "This first and last name already exists"
+        errors["lastName"] = "This first and last name already exists"
     if duplicates["email"]:
-        message = "This work email already exists"
-        if block_duplicate_email:
-            errors["workEmail"] = message
-        else:
-            warnings["workEmail"] = message
-    if duplicates["company"]:
-        warnings["companyName"] = "This company and country already exist"
+        errors["workEmail"] = "This work email already exists"
+    if duplicates["mobile"]:
+        errors["mobileNumber"] = "This mobile number already exists"
 
     return cleaned, errors, warnings, duplicates
 
@@ -897,13 +906,15 @@ def parse_uploaded_workbook(file_bytes):
     return parsed, missing
 
 
-def import_uploaded_leads(file_bytes, partner):
+def import_uploaded_leads(file_bytes, partner, partner_name=""):
     parsed_rows, missing_columns = parse_uploaded_workbook(file_bytes)
     leads = load_leads()
     imported = []
     failed = []
     row_warnings = []
+    seen_names = set()
     seen_emails = set()
+    seen_mobiles = set()
     batch_created_at = utc_now()
     batch_id = f"batch-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
     batch_label = f"{partner or 'Unknown activity'} · {batch_created_at}"
@@ -912,12 +923,23 @@ def import_uploaded_leads(file_bytes, partner):
         cleaned, cleanup_warnings = clean_upload_fields(item["fields"], missing_columns)
         cleaned, errors, validation_warnings, duplicates = validate_lead(cleaned, block_duplicate_email=False)
         warnings = {**cleanup_warnings, **validation_warnings}
+        name_key = normalize_lookup_key(f"{cleaned.get('firstName', '')} {cleaned.get('lastName', '')}")
         email_key = cleaned.get("workEmail", "").lower()
+        mobile_key = re.sub(r"\D+", "", cleaned.get("mobileNumber", ""))
+        if name_key and name_key in seen_names:
+            errors["firstName"] = "Duplicate first and last name inside uploaded file"
+            errors["lastName"] = "Duplicate first and last name inside uploaded file"
         if email_key and email_key in seen_emails:
-            warnings["workEmail"] = "Duplicate email inside uploaded file"
+            errors["workEmail"] = "Duplicate email inside uploaded file"
+        if mobile_key and mobile_key in seen_mobiles:
+            errors["mobileNumber"] = "Duplicate mobile number inside uploaded file"
 
+        if name_key:
+            seen_names.add(name_key)
         if email_key:
             seen_emails.add(email_key)
+        if mobile_key:
+            seen_mobiles.add(mobile_key)
         if warnings:
             row_warnings.append(
                 {
@@ -940,6 +962,7 @@ def import_uploaded_leads(file_bytes, partner):
         lead = {
             "id": uuid.uuid4().hex,
             "partner": partner,
+            "partnerName": partner_name,
             "uploadBatchId": batch_id,
             "uploadBatchLabel": batch_label,
             "uploadBatchCreatedAt": batch_created_at,
@@ -1017,7 +1040,10 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
         partner = form.getfirst("partner", "").strip()
         if not partner:
             raise ValueError("Activity name is required.")
-        return upload.file.read(), partner
+        partner_name = form.getfirst("partnerName", "").strip()
+        if not partner_name:
+            raise ValueError("Partner name is required.")
+        return upload.file.read(), partner, partner_name
 
     def is_admin_request(self):
         parsed = urlparse(self.path)
@@ -1104,9 +1130,10 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/check":
             fields = {
+                "firstName": query.get("firstName", [""])[0],
+                "lastName": query.get("lastName", [""])[0],
                 "workEmail": query.get("workEmail", [""])[0],
-                "companyName": query.get("companyName", [""])[0],
-                "country": query.get("country", [""])[0],
+                "mobileNumber": query.get("mobileNumber", [""])[0],
             }
             self.send_json({"duplicates": public_duplicate_report(duplicate_report(fields))})
             return
@@ -1155,6 +1182,10 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/leads":
             payload = self.read_json()
             partner = str(payload.get("partner", "")).strip()
+            partner_name = str(payload.get("partnerName", "")).strip()
+            if not partner_name:
+                self.send_json({"errors": {"partnerName": "Partner name is required"}}, HTTPStatus.BAD_REQUEST)
+                return
             if not partner:
                 self.send_json({"errors": {"partner": "Activity name is required"}}, HTTPStatus.BAD_REQUEST)
                 return
@@ -1174,6 +1205,7 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
             lead = {
                 "id": uuid.uuid4().hex,
                 "partner": partner,
+                "partnerName": partner_name,
                 "status": "pending",
                 "createdAt": utc_now(),
                 "updatedAt": utc_now(),
@@ -1188,8 +1220,8 @@ class LeadPortalHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/upload":
             try:
-                file_bytes, partner = self.read_multipart_upload()
-                result = import_uploaded_leads(file_bytes, partner)
+                file_bytes, partner, partner_name = self.read_multipart_upload()
+                result = import_uploaded_leads(file_bytes, partner, partner_name)
             except Exception as exc:
                 self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return

@@ -113,17 +113,24 @@ function localRequiredErrors(values) {
   }, {});
 }
 
-function partnerName() {
+function activityNameInput() {
   return document.querySelector("#partner").value.trim();
+}
+
+function partnerName() {
+  return document.querySelector("#partnerName").value.trim();
 }
 
 function duplicateText(duplicates) {
   const lines = [];
+  if (Array.isArray(duplicates.name) ? duplicates.name.length : duplicates.name) {
+    lines.push("A lead with this first and last name already exists");
+  }
   if (Array.isArray(duplicates.email) ? duplicates.email.length : duplicates.email) {
     lines.push("A lead with this work email already exists");
   }
-  if (Array.isArray(duplicates.company) ? duplicates.company.length : duplicates.company) {
-    lines.push("A lead from this company and country already exists");
+  if (Array.isArray(duplicates.mobile) ? duplicates.mobile.length : duplicates.mobile) {
+    lines.push("A lead with this mobile number already exists");
   }
   return lines.join(" · ");
 }
@@ -131,11 +138,12 @@ function duplicateText(duplicates) {
 async function checkDuplicates() {
   const values = valuesFromForm();
   const params = new URLSearchParams({
+    firstName: values.firstName,
+    lastName: values.lastName,
     workEmail: values.workEmail,
-    companyName: values.companyName,
-    country: values.country,
+    mobileNumber: values.mobileNumber,
   });
-  if (!values.workEmail && !values.companyName) return;
+  if (!values.workEmail && !values.mobileNumber && (!values.firstName || !values.lastName)) return;
   const response = await fetch(`/api/check?${params}`);
   const payload = await response.json();
   const text = duplicateText(payload.duplicates);
@@ -148,7 +156,8 @@ async function submitLead(event) {
   clearErrors();
   const fields = valuesFromForm();
   const localErrors = localRequiredErrors(fields);
-  if (!partnerName()) localErrors.partner = "Activity name is required";
+  if (!partnerName()) localErrors.partnerName = "Partner name is required";
+  if (!activityNameInput()) localErrors.partner = "Activity name is required";
   if (Object.keys(localErrors).length) {
     showErrors(localErrors);
     submitStatus.textContent = "Please fill every field except Tracking Code.";
@@ -160,7 +169,8 @@ async function submitLead(event) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      partner: partnerName(),
+      partner: activityNameInput(),
+      partnerName: partnerName(),
       fields,
     }),
   });
@@ -189,6 +199,11 @@ async function uploadLeads(event) {
   uploadResult.textContent = "";
   clearErrors();
   if (!partnerName()) {
+    showErrors({ partnerName: "Partner name is required" });
+    uploadStatus.textContent = "Enter partner name before uploading.";
+    return;
+  }
+  if (!activityNameInput()) {
     showErrors({ partner: "Activity name is required" });
     uploadStatus.textContent = "Enter activity name before uploading.";
     return;
@@ -205,7 +220,8 @@ async function uploadLeads(event) {
 
   uploadStatus.textContent = "Uploading and parsing...";
   const body = new FormData();
-  body.append("partner", partnerName());
+  body.append("partner", activityNameInput());
+  body.append("partnerName", partnerName());
   body.append("file", file);
 
   const response = await fetch("/api/upload", {
@@ -374,7 +390,9 @@ async function exportApproved() {
 function setPartnerFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const partner = params.get("partner");
+  const partnerName = params.get("partnerName");
   if (partner) document.querySelector("#partner").value = partner;
+  if (partnerName) document.querySelector("#partnerName").value = partnerName;
 }
 
 function adminHeaders() {
